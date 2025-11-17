@@ -8,6 +8,13 @@
    ========================================================== */
 
 // =========================
+// ▶ 環境判定（モバイル判定）
+// =========================
+const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobi/i.test(
+  navigator.userAgent || ""
+);
+
+// =========================
 // ▶ 調整パネル（ここだけ触ればOK）
 // =========================
 
@@ -15,21 +22,21 @@
 const IMG_COUNT = 20;            // 実際に置く枚数に合わせて変更
 
 // 表示や時間まわり
-const FPS = 30;
-const BG_COLOR = 0;              // 背景（0=黒, 255=白）
+let FPS        = IS_MOBILE ? 30 : 60; // モバイルは負荷軽減
+const BG_COLOR = 0;                    // 背景（0=黒, 255=白）
 
 // パッチ生成テンポ（※1枚目・最終枚には適用されない）
-const PATCH_INTERVAL_FRAMES   = 12; // 何フレームごとにパッチ生成するか（小さいほど頻繁）
-const PATCHES_MIN_PER_TICK    = 1;  // 1回のタイミングで生成するパッチ数の最小
-const PATCHES_MAX_PER_TICK    = 4;  // 1回のタイミングで生成するパッチ数の最大（含む）
+let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 24 : 12; // モバイルは半分の頻度
+let PATCHES_MIN_PER_TICK  = 1;                   // 1回のタイミングで生成するパッチ数の最小
+let PATCHES_MAX_PER_TICK  = IS_MOBILE ? 2 : 4;   // モバイルは最大2個
 
 // パッチのサイズ（画像ピクセル単位）
-const PATCH_MIN = 30;            // 最小辺
-const PATCH_MAX = 450;           // 最大辺（大きめにすると大胆に欠損）
+let PATCH_MIN = IS_MOBILE ? 20  : 30;   // 最小辺（モバイルは少し小さく）
+let PATCH_MAX = IS_MOBILE ? 200 : 450;  // 最大辺（モバイルは大きくしすぎない）
 
 // 欠損と修復の所要フレーム
-const DECAY_FRAMES   = 30;       // 欠損にかける時間（長いほどゆっくり暗く/崩れる）
-const RESTORE_FRAMES = 15;       // 修復にかける時間（長いほどゆっくり戻る）
+const DECAY_FRAMES   = IS_MOBILE ? 24 : 30; // モバイルは少し早く壊して
+const RESTORE_FRAMES = IS_MOBILE ? 12 : 15; // 少し早く戻す
 
 // 欠損表現の強さ
 const DECAY_DARKEN_MAX = 25;     // 最大暗化量（0〜255の加算的黒）
@@ -269,7 +276,6 @@ function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
   const H = dest.height;
 
   // 「周囲から持ってくる」ためのオフセット
-  // → パッチ幅の 20〜50% 分くらいずらして近傍からサンプル
   const offRatioMax = 0.5;
   const offX = int(random(-w * offRatioMax, w * offRatioMax));
   const offY = int(random(-h * offRatioMax, h * offRatioMax));
