@@ -21,35 +21,35 @@ const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobi/i.test(
 // 読み込む画像（ゼロ埋めで配置：image01.jpg, image02.jpg, ...）
 const IMG_COUNT = 20;            // 実際に置く枚数に合わせて変更
 
-// 表示や時間まわり（少し控えめのFPS）
-let FPS        = IS_MOBILE ? 40 : 40; // モバイルもPCも軽め
+// 表示や時間まわり（かなり軽め設定）
+let FPS        = IS_MOBILE ? 24 : 30; // PCもモバイルも落とす
 const BG_COLOR = 0;                    // 背景（0=黒, 255=白）
 
 // パッチ生成テンポ（※1枚目・最終枚には適用されない）
-let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 20 : 20; // モバイルはややゆっくり
+let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 18 : 18; // 両方ゆっくりめ
 let PATCHES_MIN_PER_TICK  = 1;                   // 1回のタイミングで生成するパッチ数の最小
-let PATCHES_MAX_PER_TICK  = IS_MOBILE ? 2 : 3;   // PCでも最大3個まで
+let PATCHES_MAX_PER_TICK  = IS_MOBILE ? 1 : 2;   // 1〜2個まで
 
 // パッチのサイズ（画像ピクセル単位）
-let PATCH_MIN = IS_MOBILE ? 30  : 30;   // 最小辺
-let PATCH_MAX = IS_MOBILE ? 200 : 400;  // 最大辺（前より控えめ）
+let PATCH_MIN = IS_MOBILE ? 40  : 50;   // 最小辺
+let PATCH_MAX = IS_MOBILE ? 140 : 180;  // 最大辺（かなり小さく）
 
 // 欠損と修復の所要フレーム
-const DECAY_FRAMES   = IS_MOBILE ? 40 : 40; // 壊れる速さ
-const RESTORE_FRAMES = IS_MOBILE ? 80 : 80; // 戻る速さ
+const DECAY_FRAMES   = IS_MOBILE ? 18 : 22; // 壊れる速さ
+const RESTORE_FRAMES = IS_MOBILE ? 14 : 18; // 戻る速さ
 
 // 欠損表現の強さ
 const DECAY_DARKEN_MAX = 25;     // 最大暗化量（0〜255の加算的黒）
-const DECAY_NOISE_MAX  = 5;      // ノイズの振れ幅（±）
+const DECAY_NOISE_MAX  = 5;      // ノイズの振れ幅（±）…全体にザラっとした感じを出す
 
-// 不完全修復の“違和感”コントロール
+// 不完全修復の“違和感”コントロール（少し Photoshop 寄り）
 const REPAIR_CHROMA_DRIFT  = 0.004; // RGBのわずかな係数ズレ
-const REPAIR_SEAM_STRENGTH = 0.0;   // ★縫い目はoff（0）で軽量化
+const REPAIR_SEAM_STRENGTH = 0.0;   // ★縫い目OFFで軽量化
 const REPAIR_BLEND_BIAS    = 0.0;   // アルファに加える微小バイアス
 
 // パッチ修復用：近傍 vs 元画像 の重み
-const REPAIR_NEIGHBOR_WEIGHT = 0.25; // 周りの情報
-const REPAIR_ORIGINAL_WEIGHT = 0.73; // 元の画素
+const REPAIR_NEIGHBOR_WEIGHT = 0.35; // 周りの情報
+const REPAIR_ORIGINAL_WEIGHT = 0.65; // 元の画素
 
 // 自動遷移（不要なら false）
 const AUTO_ADVANCE = false;
@@ -202,27 +202,14 @@ function spawnPatch(){
 }
 
 // =========================
-// ▶ パッチ更新（ここを軽くした）
+// ▶ パッチ更新
 // =========================
 function updatePatches(){
-  if (!workImg) return;
-
-  const dest = workImg;
-  const src  = originals[curr];
-
-  // ★ フレーム頭で一度だけピクセルを読み込む
-  dest.loadPixels();
-  if (src) src.loadPixels();
-
-  const W = dest.width;
-  const H = dest.height;
-
   for (let i = patches.length - 1; i >= 0; i--){
     const p = patches[i];
-
     if (p.phase === 'decay'){
       const k = constrain(p.t / DECAY_FRAMES, 0, 1); // 0→1
-      decayPatchPixels(dest.pixels, W, H, p.x, p.y, p.w, p.h, k);
+      decayPatch(workImg, p.x, p.y, p.w, p.h, k);
       p.t++;
       if (p.t >= DECAY_FRAMES){
         p.phase = 'restore';
@@ -230,26 +217,23 @@ function updatePatches(){
       }
     } else {
       const k = constrain((p.t / RESTORE_FRAMES) + REPAIR_BLEND_BIAS, 0, 1);
-      if (src){
-        restorePatchPixels(
-          dest.pixels, src.pixels, W, H, p.x, p.y, p.w, p.h, k
-        );
-      }
+      restorePatchFromOriginal(workImg, originals[curr], p.x, p.y, p.w, p.h, k);
       p.t++;
       if (p.t >= RESTORE_FRAMES){
         patches.splice(i,1);
       }
     }
   }
-
-  // ★ 最後に1回だけ更新
-  dest.updatePixels();
 }
 
 // =========================
-// ▶ 欠損処理：少し暗く＋ノイズ（blur無しで軽量）
+// ▶ 欠損処理：少し暗く＋ノイズ（ブラー無しで軽量）
 // =========================
-function decayPatchPixels(pixels, W, H, x, y, w, h, k){
+function decayPatch(img, x, y, w, h, k){
+  if (!img) return;
+  img.loadPixels();
+  const W = img.width, H = img.height;
+
   const dark      = DECAY_DARKEN_MAX * k;
   const noiseAmp  = DECAY_NOISE_MAX * k;
 
@@ -259,25 +243,36 @@ function decayPatchPixels(pixels, W, H, x, y, w, h, k){
       if(xx<0||xx>=W) continue;
       const i = 4*(yy*W + xx);
       // 暗化
-      pixels[i  ] = max(0, pixels[i  ] - dark);
-      pixels[i+1] = max(0, pixels[i+1] - dark);
-      pixels[i+2] = max(0, pixels[i+2] - dark);
+      img.pixels[i  ] = max(0, img.pixels[i  ] - dark);
+      img.pixels[i+1] = max(0, img.pixels[i+1] - dark);
+      img.pixels[i+2] = max(0, img.pixels[i+2] - dark);
       // ノイズ
       if (noiseAmp > 0){
         const n = (Math.random()*2-1) * noiseAmp;
-        pixels[i  ] = constrain(pixels[i  ] + n, 0, 255);
-        pixels[i+1] = constrain(pixels[i+1] + n, 0, 255);
-        pixels[i+2] = constrain(pixels[i+2] + n, 0, 255);
+        img.pixels[i  ] = constrain(img.pixels[i  ] + n, 0, 255);
+        img.pixels[i+1] = constrain(img.pixels[i+1] + n, 0, 255);
+        img.pixels[i+2] = constrain(img.pixels[i+2] + n, 0, 255);
       }
     }
   }
+  img.updatePixels();
+
+  // ★ ここにあった boxBlurRect は削除（重いのでオフ）
 }
 
 // =========================
-// ▶ 修復処理：周囲の情報＋元画素のブレンド（blur / seam無し）
+// ▶ 修復処理：周囲の情報をベースに、元の画素もブレンド
 // =========================
-function restorePatchPixels(destPixels, srcPixels, W, H, x, y, w, h, alpha){
+function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
+  if (!dest || !src) return;
+
   alpha = constrain(alpha, 0, 1);
+
+  dest.loadPixels();
+  src.loadPixels();
+
+  const W = dest.width;
+  const H = dest.height;
 
   // 「周囲から持ってくる」ためのオフセット
   const offRatioMax = 0.5;
@@ -299,9 +294,9 @@ function restorePatchPixels(destPixels, srcPixels, W, H, x, y, w, h, alpha){
       const ny = constrain(dy + offY, 0, H - 1);
       const ni = 4 * (ny * W + nx);
 
-      let nr = srcPixels[ni    ];
-      let ng = srcPixels[ni + 1];
-      let nb = srcPixels[ni + 2];
+      let nr = src.pixels[ni    ];
+      let ng = src.pixels[ni + 1];
+      let nb = src.pixels[ni + 2];
 
       // ごくわずかな色ドリフト
       if (REPAIR_CHROMA_DRIFT > 0){
@@ -311,11 +306,11 @@ function restorePatchPixels(destPixels, srcPixels, W, H, x, y, w, h, alpha){
       }
 
       // --- 本来その場所にあるべき元画素（original） ---
-      const or = srcPixels[di    ];
-      const og = srcPixels[di + 1];
-      const ob = srcPixels[di + 2];
+      const or = src.pixels[di    ];
+      const og = src.pixels[di + 1];
+      const ob = src.pixels[di + 2];
 
-      // 周囲とオリジナルをブレンド
+      // 周囲とオリジナルをブレンド（元画像寄り）
       const br =
         nr * REPAIR_NEIGHBOR_WEIGHT + or * REPAIR_ORIGINAL_WEIGHT;
       const bg =
@@ -324,15 +319,19 @@ function restorePatchPixels(destPixels, srcPixels, W, H, x, y, w, h, alpha){
         nb * REPAIR_NEIGHBOR_WEIGHT + ob * REPAIR_ORIGINAL_WEIGHT;
 
       // --- 劣化済み dest とアルファでブレンドして戻す ---
-      destPixels[di    ] =
-        destPixels[di    ] * (1 - alpha) + br * alpha;
-      destPixels[di + 1] =
-        destPixels[di + 1] * (1 - alpha) + bg * alpha;
-      destPixels[di + 2] =
-        destPixels[di + 2] * (1 - alpha) + bb * alpha;
+      dest.pixels[di    ] =
+        dest.pixels[di    ] * (1 - alpha) + br * alpha;
+      dest.pixels[di + 1] =
+        dest.pixels[di + 1] * (1 - alpha) + bg * alpha;
+      dest.pixels[di + 2] =
+        dest.pixels[di + 2] * (1 - alpha) + bb * alpha;
       // alpha チャンネルはそのまま
     }
   }
+
+  dest.updatePixels();
+
+  // ★ ここにあった seamFrame / boxBlurRect は削除（重いのでオフ）
 }
 
 // =========================
@@ -354,16 +353,14 @@ function drawFit(img){
 }
 
 // =========================
-// ▶ ユーティリティ（今は未使用だが残しておく）
+// ▶ ユーティリティ（空のまま残しておく）
 // =========================
 function seamFrame(g, x, y, w, h, k=0.05){
-  // ★いまは使っていない（REPAIR_SEAM_STRENGTH = 0）
-  if (!g) return;
+  // 今は使っていない
 }
 
 function boxBlurRect(g, x, y, w, h, r=1){
-  // ★ブラーも使わないことで負荷軽減
-  return;
+  // 今は使っていない
 }
 
 // =========================
