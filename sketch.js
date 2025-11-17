@@ -1,7 +1,7 @@
 /* ==========================================================
-   Not Not Found — Self-Healing Patches
+   Sagrada Erratica — Self-Healing Patches
    ----------------------------------------------------------
-   ・image01.jpg と最後の imageXX.jpg は「静止スライド」（ノイズなし）
+   ・image01.jpg と最後の imageXX.jpg は「静止スライド」（パッチ処理なし）
    ・中間の画像だけ、ランダムなパッチ欠損 ＋ 自己修復
    ・PC: ← / → で前後移動
    ・スマホ/PC: 画面タップでも前後移動
@@ -67,9 +67,15 @@ function isStaticIndex(i){
 // ▶ 画像のプリロード（ゼロ埋め固定）
 // =========================
 function preload(){
+  originals = [];
   for(let i=1; i<=IMG_COUNT; i++){
     const name = `image${String(i).padStart(2,'0')}.jpg`; // image01.jpg, image02.jpg, ...
-    originals.push(loadImage(name));
+    const img = loadImage(
+      name,
+      () => console.log('loaded:', name),
+      () => console.error('FAILED to load:', name)
+    );
+    originals.push(img);
   }
 }
 
@@ -94,7 +100,7 @@ function setup(){
 // ▶ メインループ
 // =========================
 function draw(){
-  // 画像がまだ準備できていないときは何もしない（真っ黒防止）
+  // workImg がまだ準備できていないときは何もしない（真っ黒防止）
   if (!workImg){
     background(BG_COLOR);
     return;
@@ -137,6 +143,8 @@ function draw(){
 // =========================
 function prepareFromCurrent(){
   const src = originals[curr];
+  if (!src) return;
+
   src.loadPixels();
 
   // 表示用ワーク（ソースのコピー；ここだけ壊す）
@@ -171,6 +179,7 @@ function gotoPrev(){
 // ▶ パッチ生成（画像座標系で）
 // =========================
 function spawnPatch(){
+  if (!workImg) return;
   const w = workImg.width;
   const h = workImg.height;
   const pw = int(random(PATCH_MIN, PATCH_MAX));
@@ -214,6 +223,7 @@ function updatePatches(){
 // ▶ 欠損処理：少し暗く＋ノイズ＋なじませブラー
 // =========================
 function decayPatch(img, x, y, w, h, k){
+  if (!img) return;
   img.loadPixels();
   const W = img.width, H = img.height;
 
@@ -248,6 +258,8 @@ function decayPatch(img, x, y, w, h, k){
 // ▶ 修復処理：周囲の情報をベースに、元の画素もブレンドする準・パッチツール
 // =========================
 function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
+  if (!dest || !src) return;
+
   alpha = constrain(alpha, 0, 1);
 
   dest.loadPixels();
@@ -258,9 +270,7 @@ function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
 
   // 「周囲から持ってくる」ためのオフセット
   // → パッチ幅の 20〜50% 分くらいずらして近傍からサンプル
-  const offRatioMin = 0.2;
   const offRatioMax = 0.5;
-
   const offX = int(random(-w * offRatioMax, w * offRatioMax));
   const offY = int(random(-h * offRatioMax, h * offRatioMax));
 
@@ -347,6 +357,7 @@ function drawFit(img){
 // ▶ ユーティリティ（縫い目・簡易ブラー）
 // =========================
 function seamFrame(g, x, y, w, h, k=0.05){
+  if (!g) return;
   g.loadPixels();
   const W=g.width, H=g.height;
   const dark=v=>constrain(v*(1-k),0,255);
@@ -385,7 +396,7 @@ function seamFrame(g, x, y, w, h, k=0.05){
 }
 
 function boxBlurRect(g, x, y, w, h, r=1){
-  if(r<=0) return;
+  if (!g || r<=0) return;
   g.loadPixels();
   const W=g.width, H=g.height;
   const src = g.pixels.slice();
@@ -427,7 +438,6 @@ function mousePressed(){
   }
 }
 
-// スマホ用（必要なら）※mousePressedだけでも動くブラウザが多い
 function touchStarted(){
   if (touches.length > 0){
     const t = touches[0];
