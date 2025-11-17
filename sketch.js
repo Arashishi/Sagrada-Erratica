@@ -25,7 +25,7 @@ const PATCHES_MAX_PER_TICK    = 4;  // 1回のタイミングで生成するパ�
 
 // パッチのサイズ（画像ピクセル単位）
 const PATCH_MIN = 30;            // 最小辺
-const PATCH_MAX = 400;           // 最大辺（大きめにすると大胆に欠損）
+const PATCH_MAX = 450;           // 最大辺（大きめにすると大胆に欠損）
 
 // 欠損と修復の所要フレーム
 const DECAY_FRAMES   = 30;       // 欠損にかける時間（長いほどゆっくり暗く/崩れる）
@@ -80,7 +80,6 @@ function setup(){
   createCanvas(windowWidth, windowHeight);
   frameRate(FPS);
   pixelDensity(1);
-  // noSmooth();  // 使うとジャギーが出るので基本オフでOK
   background(BG_COLOR);
 
   if (originals.length === 0){
@@ -212,7 +211,7 @@ function updatePatches(){
 }
 
 // =========================
-
+// ▶ 欠損処理：少し暗く＋ノイズ＋なじませブラー
 // =========================
 function decayPatch(img, x, y, w, h, k){
   img.loadPixels();
@@ -296,7 +295,7 @@ function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
       const og = src.pixels[di + 1];
       const ob = src.pixels[di + 2];
 
-      // 周囲とオリジナルをブレンド（ここが「Photoshop寄り/元画像寄り」の中間点）
+      // 周囲とオリジナルをブレンド（Photoshop寄り/元画像寄りの中間）
       const br =
         nr * REPAIR_NEIGHBOR_WEIGHT + or * REPAIR_ORIGINAL_WEIGHT;
       const bg =
@@ -438,7 +437,6 @@ function touchStarted(){
       gotoPrev();
     }
   }
-  // デフォルト動作（スクロールなど）を止めないために false は返さない
 }
 
 function windowResized(){
