@@ -26,7 +26,7 @@ let FPS        = IS_MOBILE ? 30 : 60; // モバイルは負荷軽減
 const BG_COLOR = 0;                    // 背景（0=黒, 255=白）
 
 // パッチ生成テンポ（※1枚目・最終枚には適用されない）
-let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 24 : 12; // モバイルは半分の頻度
+let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 12 : 8; // モバイルは半分の頻度
 let PATCHES_MIN_PER_TICK  = 1;                   // 1回のタイミングで生成するパッチ数の最小
 let PATCHES_MAX_PER_TICK  = IS_MOBILE ? 2 : 4;   // モバイルは最大2個
 
@@ -35,7 +35,7 @@ let PATCH_MIN = IS_MOBILE ? 20  : 30;   // 最小辺（モバイルは少し小�
 let PATCH_MAX = IS_MOBILE ? 200 : 450;  // 最大辺（モバイルは大きくしすぎない）
 
 // 欠損と修復の所要フレーム
-const DECAY_FRAMES   = IS_MOBILE ? 24 : 30; // モバイルは少し早く壊して
+const DECAY_FRAMES   = IS_MOBILE ? 24 : 15; // モバイルは少し早く壊して
 const RESTORE_FRAMES = IS_MOBILE ? 12 : 15; // 少し早く戻す
 
 // 欠損表現の強さ
@@ -48,7 +48,7 @@ const REPAIR_SEAM_STRENGTH = 0.05;  // パッチ縫い目の残り具合（0〜0
 const REPAIR_BLEND_BIAS    = 0.0;   // アルファに加える微小バイアス
 
 // パッチ修復用：近傍 vs 元画像 の重み
-const REPAIR_NEIGHBOR_WEIGHT = 0.33; // 周りの情報：これを上げるとよりPhotoshop寄り
+const REPAIR_NEIGHBOR_WEIGHT = 0.35; // 周りの情報：これを上げるとよりPhotoshop寄り
 const REPAIR_ORIGINAL_WEIGHT = 0.67; // 元の画素：これを上げるとオリジナル重視
 
 // 自動遷移（不要なら false）
