@@ -34,12 +34,12 @@ let PATCHES_MAX_PER_TICK  = 3;   // 2にすると少しにぎやかになる
 // ●パッチの大きさ（元画像のピクセル単位）
 //   ・大きいとダイナミック、小さいと「細胞っぽい」感じ
 let PATCH_MIN = 30;   // 最小サイズ
-let PATCH_MAX = 200;   // 最大サイズ
+let PATCH_MAX = 400;   // 最大サイズ
 
 // ●壊れる／戻るスピード（フレーム数）
 //   ・数字が大きいほどゆっくり変化する
-const DECAY_FRAMES   = 180;   // 壊れていくのにかける時間
-const RESTORE_FRAMES = 190;   // 修復にかける時間
+const DECAY_FRAMES   = 200;   // 壊れていくのにかける時間
+const RESTORE_FRAMES = 230;   // 修復にかける時間
 
 // ●欠損表現（どれくらい暗く／どれくらいザラザラさせるか）
 const DECAY_DARKEN_MAX = 25;   // 暗くする量（0〜50くらいが目安）
