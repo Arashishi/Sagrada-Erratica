@@ -1,93 +1,99 @@
 /* ==========================================================
-   Sagrada Erratica — Self-Healing Patches (lazy load)
+   Sagrada Erratica — Self-Healing Patches
    ----------------------------------------------------------
-   ・image01.jpg と最後の imageXX.jpg は「静止スライド」（パッチ処理なし）
-   ・中間の画像だけ、ランダムなパッチ欠損 ＋ 自己修復
+   ・image01.jpg と最後の imageXX.jpg は「静止スライド」（パッチなし）
+   ・中間の画像だけ、ランダムなパッチ欠損 → 徐々に修復
    ・PC: ← / → で前後移動
    ・スマホ/PC: 画面タップでも前後移動
-   ・画像は「そのスライドに来たとき」に読み込む（preload廃止）
+   ・モバイル判定は一切なし（PC／スマホで同じ動作）
    ========================================================== */
 
-// =========================
-// ▶ 環境判定（モバイル判定）
-// =========================
-const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobi/i.test(
-  navigator.userAgent || ""
-);
+
+/* ===============================
+   ▼ 調整エリア（ここだけいじればOK）
+   =============================== */
+
+// ●読み込む画像の枚数
+//   image01.jpg 〜 imageXX.jpg を置いた枚数に合わせる
+const IMG_COUNT = 20;
+
+// ●フレームレート
+//   数字を上げると動きがなめらかになるが重くなる
+let FPS = 30;          // 目安：20〜40くらい
+
+// ●背景色（0=黒, 255=白）
+const BG_COLOR = 0;
+
+// ●パッチが出現する「間隔」と「数」
+//   ・PATCH_INTERVAL_FRAMES … 大きいほどゆっくり出てくる
+//   ・PATCHES_MAX_PER_TICK   … 一度に出てくる最大個数
+let PATCH_INTERVAL_FRAMES = 30;  // 例：50なら1〜2秒に1回くらい
+let PATCHES_MIN_PER_TICK  = 1;
+let PATCHES_MAX_PER_TICK  = 4;   // 2にすると少しにぎやかになる
+
+// ●パッチの大きさ（元画像のピクセル単位）
+//   ・大きいとダイナミック、小さいと「細胞っぽい」感じ
+let PATCH_MIN = 30;   // 最小サイズ
+let PATCH_MAX = 450;   // 最大サイズ
+
+// ●壊れる／戻るスピード（フレーム数）
+//   ・数字が大きいほどゆっくり変化する
+const DECAY_FRAMES   = 30;   // 壊れていくのにかける時間
+const RESTORE_FRAMES = 40;   // 修復にかける時間
+
+// ●欠損表現（どれくらい暗く／どれくらいザラザラさせるか）
+const DECAY_DARKEN_MAX = 25;   // 暗くする量（0〜50くらいが目安）
+const DECAY_NOISE_MAX  = 5;    // ノイズの強さ（0でノイズなし）
+
+// ●修復時の「Photoshop パッチツールっぽさ」
+//   ・REPAIR_NEIGHBOR_WEIGHT … 周囲の情報の寄り具合
+//   ・REPAIR_ORIGINAL_WEIGHT … 元の画素の寄り具合
+//   合計がだいたい1になるようにする
+const REPAIR_NEIGHBOR_WEIGHT = 0.1;  // 上げると「周囲から持ってきた」感じが強くなる
+const REPAIR_ORIGINAL_WEIGHT = 0.9;  // 上げるとオリジナル寄りで安定する
+
+// ●修復時の色のズレ（違和感の微調整）
+//   ・0に近いほどオリジナルに忠実
+const REPAIR_CHROMA_DRIFT  = 0.004;   // 0.0〜0.01くらいを目安
+
+// ●縫い目（パッチのフチ）の残し具合
+//   ・0 にすると縫い目なし（自然）
+//   ・大きくすると「貼り合わせ」感が出る
+const REPAIR_SEAM_STRENGTH = 0.05;    // 0〜0.1くらい
+
+// ●アルファブレンドのちょっとしたバイアス
+//   ・基本 0 でOK。変な滲みが欲しい時だけいじる
+const REPAIR_BLEND_BIAS = 0.0;
+
+// ●自動で次のスライドに進めるかどうか
+const AUTO_ADVANCE = false;           // true にすると自動再生
+const AUTO_SECONDS = 60;              // 1枚あたりの表示秒数
+
+
+
+/* ===============================
+   ▼ 内部変数（基本いじらない）
+   =============================== */
+
+let originals = new Array(IMG_COUNT); // 元画像
+let workImg   = null;                 // パッチをかける作業用画像
+let curr      = 0;                    // 現在インデックス（0〜IMG_COUNT-1）
+let frameLocal= 0;                    // その画像での経過フレーム
+let patches   = [];                   // アクティブなパッチたち
+let fitCache  = null;                 // 画面フィット用の計算結果
+let isLoading = false;                // 読み込み中フラグ
+
 
 // =========================
-// ▶ 調整パネル（ここだけ触ればOK）
+// ▶ index からファイル名を作る
 // =========================
-
-// 読み込む画像（ゼロ埋めで配置：image01.jpg, image02.jpg, ...）
-const IMG_COUNT = 20;            // 実際に置く枚数に合わせて変更
-
-// 表示や時間まわり
-let FPS        = IS_MOBILE ? 30 : 60; // モバイルは負荷軽減
-const BG_COLOR = 0;                    // 背景（0=黒, 255=白）
-
-// パッチ生成テンポ（※1枚目・最終枚には適用されない）
-let PATCH_INTERVAL_FRAMES = IS_MOBILE ? 12 : 8; // モバイルは少しゆっくり
-let PATCHES_MIN_PER_TICK  = 1;                  // 1回のタイミングで生成するパッチ数の最小
-let PATCHES_MAX_PER_TICK  = IS_MOBILE ? 2 : 4;  // モバイルは最大2個
-
-// パッチのサイズ（画像ピクセル単位）
-let PATCH_MIN = IS_MOBILE ? 20  : 30;   // 最小辺（モバイルは少し小さく）
-let PATCH_MAX = IS_MOBILE ? 200 : 450;  // 最大辺（モバイルは大きくしすぎない）
-
-// 欠損と修復の所要フレーム
-const DECAY_FRAMES   = IS_MOBILE ? 24 : 15; // モバイルは少し早く壊して
-const RESTORE_FRAMES = IS_MOBILE ? 12 : 15; // 少し早く戻す
-
-// 欠損表現の強さ
-const DECAY_DARKEN_MAX = 25;     // 最大暗化量（0〜255の加算的黒）
-const DECAY_NOISE_MAX  = 5;      // ノイズの振れ幅（±）…全体にザラっとした感じを出す
-
-// 不完全修復の“違和感”コントロール（少し Photoshop 寄り）
-const REPAIR_CHROMA_DRIFT  = 0.004; // RGBのわずかな係数ズレ
-const REPAIR_SEAM_STRENGTH = 0.05;  // パッチ縫い目の残り具合（0〜0.3）
-const REPAIR_BLEND_BIAS    = 0.0;   // アルファに加える微小バイアス
-
-// パッチ修復用：近傍 vs 元画像 の重み
-const REPAIR_NEIGHBOR_WEIGHT = 0.35; // 周りの情報：これを上げるとよりPhotoshop寄り
-const REPAIR_ORIGINAL_WEIGHT = 0.67; // 元の画素：これを上げるとオリジナル重視
-
-// 自動遷移（不要なら false）
-const AUTO_ADVANCE = false;
-const AUTO_SECONDS = 60;         // 1枚あたりの目安秒数（AUTO_ADVANCE=true時のみ有効）
-
-// =========================
-// ▶ 内部変数（触らない）
-// =========================
-
-// 元画像をあとから埋めていく（lazy load）
-let originals = new Array(IMG_COUNT);  // 各要素は最初 undefined
-
-let workImg   = null;            // 表示用（ここだけ欠損/修復をかける）
-let curr      = 0;               // 現在インデックス（0〜IMG_COUNT-1）
-let frameLocal= 0;               // その画像での経過フレーム
-let patches   = [];              // アクティブなパッチ配列
-let fitCache  = null;            // 描画フィット用キャッシュ
-let isLoading = false;           // 現在のスライド画像を読み込み中かどうか
-
-// 1枚目・最終枚を「静止スライド」にするための判定
-function isStaticIndex(i){
-  return i === 0 || i === (IMG_COUNT - 1);
-}
-
-// index → ファイル名（image01.jpg 等）
 function filenameForIndex(idx){
-  const num = idx + 1; // 0-based → 1-based
-  return `image${String(num).padStart(2,'0')}.jpg`;
+  return `image${String(idx+1).padStart(2,'0')}.jpg`;
 }
 
-// =========================
-// ▶ preload は使わない（全部読み終わるまで待たない）
-// =========================
-// function preload() { /* 何もしない or 定義しない */ }
 
 // =========================
-// ▶ セットアップ
+// ▶ setup：最初に1回だけ呼ばれる
 // =========================
 function setup(){
   createCanvas(windowWidth, windowHeight);
@@ -95,93 +101,44 @@ function setup(){
   pixelDensity(1);
   background(BG_COLOR);
 
-  // 最初の1枚（curr=0）だけ読み込み開始
+  // 最初の1枚だけ読み込む
   loadCurrentIfNeeded();
 }
 
+
 // =========================
-// ▶ 現在インデックスの画像を必要に応じて読み込む
+// ▶ 必要になった画像だけ読み込む（遅延読み込み）
 // =========================
 function loadCurrentIfNeeded(){
-  // すでにロード済みならそのまま使う
   if (originals[curr]) {
     prepareFromCurrent();
     return;
   }
 
   isLoading = true;
-  workImg = null;   // 読み込み中は一旦消しておく
-  patches = [];
-  frameLocal = 0;
+  workImg   = null;
 
   const name = filenameForIndex(curr);
-  console.log('loading:', name);
+  console.log("loading:", name);
 
   loadImage(
     name,
     img => {
-      // 読み込み成功
       originals[curr] = img;
       isLoading = false;
       prepareFromCurrent();
     },
-    err => {
-      // 読み込み失敗
-      console.error('FAILED to load:', name, err);
+    () => {
+      console.error("FAILED:", name);
       isLoading = false;
       workImg = null;
     }
   );
 }
 
-// =========================
-// ▶ メインループ
-// =========================
-function draw(){
-  background(BG_COLOR);
-
-  // 読み込み中 or まだ画像なし → ローディング表示だけ
-  if (isLoading || !workImg){
-    fill(200);
-    noStroke();
-    textAlign(CENTER, CENTER);
-    textSize(16);
-    text('Loading...', width/2, height/2);
-    return;
-  }
-
-  const staticSlide = isStaticIndex(curr);
-
-  if (!staticSlide){
-    // 中間の写真だけ、パッチ生成＆更新を行う
-    if (frameCount % PATCH_INTERVAL_FRAMES === 0){
-      const numPatches = int(random(
-        PATCHES_MIN_PER_TICK,
-        PATCHES_MAX_PER_TICK + 1
-      ));
-      for(let n=0; n<numPatches; n++){
-        spawnPatch();
-      }
-    }
-
-    updatePatches();
-  } else {
-    // タイトル／コンセプトのスライドではパッチをクリアして完全静止
-    patches = [];
-  }
-
-  // 表示
-  drawFit(workImg);
-
-  // 自動遷移（オプション）
-  frameLocal++;
-  if (AUTO_ADVANCE && frameLocal >= AUTO_SECONDS*FPS){
-    gotoNext();
-  }
-}
 
 // =========================
-// ▶ 現在画像を準備（元画像→作業用コピー）
+/* ▶ 現在の画像をパッチ用に準備する  */
 // =========================
 function prepareFromCurrent(){
   const src = originals[curr];
@@ -189,7 +146,7 @@ function prepareFromCurrent(){
 
   src.loadPixels();
 
-  // 表示用ワーク（ソースのコピー；ここだけ壊す）
+  // 作業用画像（ここに欠損／修復をかける）
   workImg = createImage(src.width, src.height);
   workImg.loadPixels();
   for (let i=0; i<src.pixels.length; i++){
@@ -197,16 +154,58 @@ function prepareFromCurrent(){
   }
   workImg.updatePixels();
 
-  // パッチ初期化
-  patches = [];
+  patches    = [];
   frameLocal = 0;
 
-  // フィット係数を計算
+  // 画面フィットの計算
   computeFit(src.width, src.height, width, height);
 }
 
+
 // =========================
-// ▶ 画像切り替え（前後）
+// ▶ メインループ
+// =========================
+function draw(){
+  background(BG_COLOR);
+
+  if (isLoading || !workImg){
+    // 読み込み中は「Loading...」だけ表示
+    fill(200);
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    text("Loading...", width/2, height/2);
+    return;
+  }
+
+  // 1枚目・最後の1枚は静止
+  const staticSlide = (curr === 0 || curr === IMG_COUNT - 1);
+
+  // workImg に対してパッチ更新
+  if (!staticSlide){
+    // 一定フレームごとに新しいパッチを生む
+    if (frameCount % PATCH_INTERVAL_FRAMES === 0){
+      const num = int(random(PATCHES_MIN_PER_TICK, PATCHES_MAX_PER_TICK + 1));
+      for(let i=0; i<num; i++) spawnPatch();
+    }
+    updatePatches();
+  } else {
+    // タイトル／コンセプトなどの静止スライドではパッチなし
+    patches = [];
+  }
+
+  // パッチが適用された workImg を画面に描画
+  drawFit(workImg);
+
+  // 自動遷移オプション
+  frameLocal++;
+  if (AUTO_ADVANCE && frameLocal >= AUTO_SECONDS * FPS){
+    gotoNext();
+  }
+}
+
+
+// =========================
+// ▶ スライド切り替え
 // =========================
 function gotoNext(){
   curr = (curr + 1) % IMG_COUNT;
@@ -217,38 +216,46 @@ function gotoPrev(){
   loadCurrentIfNeeded();
 }
 
+
 // =========================
-// ▶ パッチ生成（画像座標系で）
+// ▶ パッチ生成（位置・サイズだけ決める）
 // =========================
 function spawnPatch(){
   if (!workImg) return;
+
   const w = workImg.width;
   const h = workImg.height;
+
   const pw = int(random(PATCH_MIN, PATCH_MAX));
   const ph = int(random(PATCH_MIN, PATCH_MAX));
-  const x  = int(random(0, max(1, w - pw)));
-  const y  = int(random(0, max(1, h - ph)));
+  const x  = int(random(0, w - pw));
+  const y  = int(random(0, h - ph));
 
   patches.push({
-    x, y, w: pw, h: ph,
-    t: 0,            // 経過フレーム
-    phase: 'decay'   // 'decay' → 'restore'
+    x, y,
+    w: pw,
+    h: ph,
+    t: 0,
+    phase: "decay"   // "decay" → "restore"
   });
 }
 
+
 // =========================
-// ▶ パッチ更新
+// ▶ パッチ更新（壊れる→戻る）
 // =========================
 function updatePatches(){
   if (!workImg) return;
+
   for (let i = patches.length - 1; i >= 0; i--){
     const p = patches[i];
-    if (p.phase === 'decay'){
-      const k = constrain(p.t / DECAY_FRAMES, 0, 1); // 0→1
+
+    if (p.phase === "decay"){
+      const k = constrain(p.t / DECAY_FRAMES, 0, 1);
       decayPatch(workImg, p.x, p.y, p.w, p.h, k);
       p.t++;
       if (p.t >= DECAY_FRAMES){
-        p.phase = 'restore';
+        p.phase = "restore";
         p.t = 0;
       }
     } else {
@@ -256,238 +263,155 @@ function updatePatches(){
       restorePatchFromOriginal(workImg, originals[curr], p.x, p.y, p.w, p.h, k);
       p.t++;
       if (p.t >= RESTORE_FRAMES){
-        patches.splice(i,1);
+        patches.splice(i, 1);
       }
     }
   }
 }
 
+
 // =========================
-// ▶ 欠損処理：少し暗く＋ノイズ＋なじませブラー
+// ▶ 欠損処理（暗くして少しノイズ）
 // =========================
 function decayPatch(img, x, y, w, h, k){
-  if (!img) return;
   img.loadPixels();
-  const W = img.width, H = img.height;
 
-  const dark      = DECAY_DARKEN_MAX * k;
-  const noiseAmp  = DECAY_NOISE_MAX * k;
+  const W = img.width;
+  const H = img.height;
 
-  for(let yy=y; yy<y+h; yy++){
-    if(yy<0||yy>=H) continue;
-    for(let xx=x; xx<x+w; xx++){
-      if(xx<0||xx>=W) continue;
-      const i = 4*(yy*W + xx);
-      // 暗化
+  const dark     = DECAY_DARKEN_MAX * k;
+  const noiseAmp = DECAY_NOISE_MAX * k;
+
+  for(let yy = y; yy < y + h; yy++){
+    if (yy < 0 || yy >= H) continue;
+    for(let xx = x; xx < x + w; xx++){
+      if (xx < 0 || xx >= W) continue;
+
+      const i = 4 * (yy * W + xx);
+
+      // 暗くする
       img.pixels[i  ] = max(0, img.pixels[i  ] - dark);
       img.pixels[i+1] = max(0, img.pixels[i+1] - dark);
       img.pixels[i+2] = max(0, img.pixels[i+2] - dark);
-      // ノイズ
+
+      // うっすらノイズ
       if (noiseAmp > 0){
-        const n = (Math.random()*2-1) * noiseAmp;
+        const n = (Math.random()*2 - 1) * noiseAmp;
         img.pixels[i  ] = constrain(img.pixels[i  ] + n, 0, 255);
         img.pixels[i+1] = constrain(img.pixels[i+1] + n, 0, 255);
         img.pixels[i+2] = constrain(img.pixels[i+2] + n, 0, 255);
       }
     }
   }
-  img.updatePixels();
 
-  // ★ ブラーは重いので一旦オフにしてもOK
-  // boxBlurRect(img, x, y, w, h, 1);
+  img.updatePixels();
 }
 
+
 // =========================
-// ▶ 修復処理：周囲の情報をベースに、元の画素もブレンドする準・パッチツール
+// ▶ 修復処理（周囲＋元画素ブレンド）
 // =========================
 function restorePatchFromOriginal(dest, src, x, y, w, h, alpha){
-  if (!dest || !src) return;
-
-  alpha = constrain(alpha, 0, 1);
-
   dest.loadPixels();
   src.loadPixels();
 
-  const W = dest.width;
-  const H = dest.height;
+  const Wd = dest.width;
+  const Hd = dest.height;
+  const Ws = src.width;
+  const Hs = src.height;
 
-  // 「周囲から持ってくる」ためのオフセット
-  const offRatioMax = 0.5;
-  const offX = int(random(-w * offRatioMax, w * offRatioMax));
-  const offY = int(random(-h * offRatioMax, h * offRatioMax));
+  // 「周囲から持ってくる」ためのランダムなオフセット
+  const offX = int(random(-w * 0.5, w * 0.5));
+  const offY = int(random(-h * 0.5, h * 0.5));
 
   for (let yy = 0; yy < h; yy++){
     const dy = y + yy;
-    if (dy < 0 || dy >= H) continue;
+    if (dy < 0 || dy >= Hd) continue;
 
     for (let xx = 0; xx < w; xx++){
       const dx = x + xx;
-      if (dx < 0 || dx >= W) continue;
+      if (dx < 0 || dx >= Wd) continue;
 
-      const di = 4 * (dy * W + dx);
+      const di = 4 * (dy * Wd + dx);   // dest 用インデックス
 
-      // --- 近傍（neighbor）をサンプリング ---
-      const nx = constrain(dx + offX, 0, W - 1);
-      const ny = constrain(dy + offY, 0, H - 1);
-      const ni = 4 * (ny * W + nx);
+      // 周囲（neighbor）からサンプリングする座標（src の座標）
+      let nx = dx + offX;
+      let ny = dy + offY;
+      nx = constrain(nx, 0, Ws - 1);
+      ny = constrain(ny, 0, Hs - 1);
+      const ni = 4 * (ny * Ws + nx);
 
-      let nr = src.pixels[ni    ];
-      let ng = src.pixels[ni + 1];
-      let nb = src.pixels[ni + 2];
+      let nr = src.pixels[ni  ];
+      let ng = src.pixels[ni+1];
+      let nb = src.pixels[ni+2];
 
-      // ごくわずかな色ドリフト
+      // ごくわずかに色ズレ（違和感）
       if (REPAIR_CHROMA_DRIFT > 0){
         nr = constrain(nr * (1 + REPAIR_CHROMA_DRIFT*0.6), 0, 255);
         ng = constrain(ng * (1 - REPAIR_CHROMA_DRIFT*0.3), 0, 255);
         nb = constrain(nb * (1 - REPAIR_CHROMA_DRIFT*0.6), 0, 255);
       }
 
-      // --- 本来その場所にあるべき元画素（original） ---
-      const or = src.pixels[di    ];
-      const og = src.pixels[di + 1];
-      const ob = src.pixels[di + 2];
+      // その場所の本来の画素（original）
+      const oi = 4 * (dy * Ws + dx);
+      const or = src.pixels[oi  ];
+      const og = src.pixels[oi+1];
+      const ob = src.pixels[oi+2];
 
-      // 周囲とオリジナルをブレンド（Photoshop寄り/元画像寄りの中間）
-      const br =
-        nr * REPAIR_NEIGHBOR_WEIGHT + or * REPAIR_ORIGINAL_WEIGHT;
-      const bg =
-        ng * REPAIR_NEIGHBOR_WEIGHT + og * REPAIR_ORIGINAL_WEIGHT;
-      const bb =
-        nb * REPAIR_NEIGHBOR_WEIGHT + ob * REPAIR_ORIGINAL_WEIGHT;
+      // 周囲とオリジナルをブレンド
+      const br = nr * REPAIR_NEIGHBOR_WEIGHT + or * REPAIR_ORIGINAL_WEIGHT;
+      const bg = ng * REPAIR_NEIGHBOR_WEIGHT + og * REPAIR_ORIGINAL_WEIGHT;
+      const bb = nb * REPAIR_NEIGHBOR_WEIGHT + ob * REPAIR_ORIGINAL_WEIGHT;
 
-      // --- 劣化済み dest とアルファでブレンドして戻す ---
-      dest.pixels[di    ] =
-        dest.pixels[di    ] * (1 - alpha) + br * alpha;
-      dest.pixels[di + 1] =
-        dest.pixels[di + 1] * (1 - alpha) + bg * alpha;
-      dest.pixels[di + 2] =
-        dest.pixels[di + 2] * (1 - alpha) + bb * alpha;
-      // alpha チャンネルはそのまま
+      // 元の壊れた画素とアルファでブレンドして戻す
+      const a = constrain(alpha, 0, 1);
+      dest.pixels[di  ] = dest.pixels[di  ] * (1 - a) + br * a;
+      dest.pixels[di+1] = dest.pixels[di+1] * (1 - a) + bg * a;
+      dest.pixels[di+2] = dest.pixels[di+2] * (1 - a) + bb * a;
     }
   }
 
   dest.updatePixels();
-
-  // ほんの少しだけ縫い目の痕跡を残す（重いと感じたらコメントアウトしてOK）
-  if (REPAIR_SEAM_STRENGTH > 0){
-    seamFrame(dest, x, y, w, h, REPAIR_SEAM_STRENGTH);
-  }
-
-  // なじませ（必要ならオンにする）
-  // boxBlurRect(dest, x, y, w, h, 1);
 }
 
+
 // =========================
-// ▶ フィット描画（アスペクト維持）
+// ▶ 画面にフィットさせて画像を描画
 // =========================
 function computeFit(iw, ih, cw, ch){
-  const s  = Math.min(cw/iw, ch/ih);
-  const dw = iw * s;
-  const dh = ih * s;
-  const ox = (cw - dw)*0.5;
-  const oy = (ch - dh)*0.5;
-  fitCache = {dw, dh, ox, oy};
+  const s = Math.min(cw/iw, ch/ih);
+  fitCache = {
+    dw: iw * s,
+    dh: ih * s,
+    ox: (cw - iw * s) * 0.5,
+    oy: (ch - ih * s) * 0.5
+  };
 }
+
 function drawFit(img){
-  if (!img) return;
   if (!fitCache) computeFit(img.width, img.height, width, height);
   const {dw, dh, ox, oy} = fitCache;
   image(img, ox, oy, dw, dh);
 }
 
-// =========================
-// ▶ ユーティリティ（縫い目・簡易ブラー）
-// =========================
-function seamFrame(g, x, y, w, h, k=0.05){
-  if (!g) return;
-  g.loadPixels();
-  const W=g.width, H=g.height;
-  const dark=v=>constrain(v*(1-k),0,255);
-  const lite=v=>constrain(v*(1+k*0.5),0,255);
-  // 上下ライン
-  for(let xx=x; xx<x+w; xx++){
-    const iTop = 4*(y*W + xx);
-    const iBot = 4*((y+h-1)*W + xx);
-    if(y>=0 && y<H){
-      g.pixels[iTop]   = dark(g.pixels[iTop]);
-      g.pixels[iTop+1] = dark(g.pixels[iTop+1]);
-      g.pixels[iTop+2] = dark(g.pixels[iTop+2]);
-    }
-    if(y+h-1>=0 && y+h-1<H){
-      g.pixels[iBot]   = lite(g.pixels[iBot]);
-      g.pixels[iBot+1] = lite(g.pixels[iBot+1]);
-      g.pixels[iBot+2] = lite(g.pixels[iBot+2]);
-    }
-  }
-  // 左右ライン
-  for(let yy=y; yy<y+h; yy++){
-    const iL = 4*(yy*W + x);
-    const iR = 4*(yy*W + (x+w-1));
-    if(x>=0 && x<W){
-      g.pixels[iL]   = dark(g.pixels[iL]);
-      g.pixels[iL+1] = dark(g.pixels[iL+1]);
-      g.pixels[iL+2] = dark(g.pixels[iL+2]);
-    }
-    if(x+w-1>=0 && x+w-1<W){
-      g.pixels[iR]   = lite(g.pixels[iR]);
-      g.pixels[iR+1] = lite(g.pixels[iR+1]);
-      g.pixels[iR+2] = lite(g.pixels[iR+2]);
-    }
-  }
-  g.updatePixels();
-}
-
-function boxBlurRect(g, x, y, w, h, r=1){
-  if (!g || r<=0) return;
-  g.loadPixels();
-  const W=g.width, H=g.height;
-  const src = g.pixels.slice();
-  for(let yy=y; yy<y+h; yy++){
-    if(yy<0||yy>=H) continue;
-    for(let xx=x; xx<x+w; xx++){
-      if(xx<0||xx>=W) continue;
-      let rr=0,gg=0,bb=0,c=0;
-      for(let k=-r;k<=r;k++){
-        const xxx = constrain(xx+k,0,W-1);
-        const ii  = 4*(yy*W + xxx);
-        rr+=src[ii]; gg+=src[ii+1]; bb+=src[ii+2]; c++;
-      }
-      const o = 4*(yy*W + xx);
-      g.pixels[o  ] = rr/c;
-      g.pixels[o+1] = gg/c;
-      g.pixels[o+2] = bb/c;
-    }
-  }
-  g.updatePixels();
-}
 
 // =========================
-// ▶ 入力（←/→・タップ）＆リサイズ
+// ▶ 入力（キー・クリック・タップ）
 // =========================
 function keyPressed(){
   if (keyCode === RIGHT_ARROW) gotoNext();
-  else if (keyCode === LEFT_ARROW) gotoPrev();
+  if (keyCode === LEFT_ARROW)  gotoPrev();
 }
 
-// PCクリック & スマホタップ両方対応
 function mousePressed(){
-  // 画面の右半分タップ → 次へ
-  // 左半分タップ → 前へ
-  if (mouseX > width / 2){
-    gotoNext();
-  } else {
-    gotoPrev();
-  }
+  if (mouseX > width / 2) gotoNext();
+  else gotoPrev();
 }
 
 function touchStarted(){
   if (touches.length > 0){
-    const t = touches[0];
-    if (t.x > width / 2){
-      gotoNext();
-    } else {
-      gotoPrev();
-    }
+    if (touches[0].x > width / 2) gotoNext();
+    else gotoPrev();
   }
 }
 
