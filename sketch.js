@@ -27,19 +27,19 @@ const BG_COLOR = 0;
 // ●パッチが出現する「間隔」と「数」
 //   ・PATCH_INTERVAL_FRAMES … 大きいほどゆっくり出てくる
 //   ・PATCHES_MAX_PER_TICK   … 一度に出てくる最大個数
-let PATCH_INTERVAL_FRAMES = 120;  // 例：50なら1〜2秒に1回くらい
+let PATCH_INTERVAL_FRAMES = 300;  // 例：50なら1〜2秒に1回くらい
 let PATCHES_MIN_PER_TICK  = 1;
 let PATCHES_MAX_PER_TICK  = 3;   // 2にすると少しにぎやかになる
 
 // ●パッチの大きさ（元画像のピクセル単位）
 //   ・大きいとダイナミック、小さいと「細胞っぽい」感じ
 let PATCH_MIN = 30;   // 最小サイズ
-let PATCH_MAX = 95;   // 最大サイズ
+let PATCH_MAX = 135;   // 最大サイズ
 
 // ●壊れる／戻るスピード（フレーム数）
 //   ・数字が大きいほどゆっくり変化する
-const DECAY_FRAMES   = 1000;   // 壊れていくのにかける時間
-const RESTORE_FRAMES = 1200;   // 修復にかける時間
+const DECAY_FRAMES   = 800;   // 壊れていくのにかける時間
+const RESTORE_FRAMES = 400;   // 修復にかける時間
 
 // ●欠損表現（どれくらい暗く／どれくらいザラザラさせるか）
 const DECAY_DARKEN_MAX = 25;   // 暗くする量（0〜50くらいが目安）
@@ -49,7 +49,7 @@ const DECAY_NOISE_MAX  = 5;    // ノイズの強さ（0でノイズなし）
 //   ・REPAIR_NEIGHBOR_WEIGHT … 周囲の情報の寄り具合
 //   ・REPAIR_ORIGINAL_WEIGHT … 元の画素の寄り具合
 //   合計がだいたい1になるようにする
-const REPAIR_NEIGHBOR_WEIGHT = 0.1;  // 上げると「周囲から持ってきた」感じが強くなる
+const REPAIR_NEIGHBOR_WEIGHT = 0.15;  // 上げると「周囲から持ってきた」感じが強くなる
 const REPAIR_ORIGINAL_WEIGHT = 0.9;  // 上げるとオリジナル寄りで安定する
 
 // ●修復時の色のズレ（違和感の微調整）
