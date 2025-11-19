@@ -27,19 +27,19 @@ const BG_COLOR = 0;
 // ●パッチが出現する「間隔」と「数」
 //   ・PATCH_INTERVAL_FRAMES … 大きいほどゆっくり出てくる
 //   ・PATCHES_MAX_PER_TICK   … 一度に出てくる最大個数
-let PATCH_INTERVAL_FRAMES = 90;  // 例：50なら1〜2秒に1回くらい
+let PATCH_INTERVAL_FRAMES = 120;  // 例：50なら1〜2秒に1回くらい
 let PATCHES_MIN_PER_TICK  = 1;
 let PATCHES_MAX_PER_TICK  = 3;   // 2にすると少しにぎやかになる
 
 // ●パッチの大きさ（元画像のピクセル単位）
 //   ・大きいとダイナミック、小さいと「細胞っぽい」感じ
 let PATCH_MIN = 30;   // 最小サイズ
-let PATCH_MAX = 90;   // 最大サイズ
+let PATCH_MAX = 60;   // 最大サイズ
 
 // ●壊れる／戻るスピード（フレーム数）
 //   ・数字が大きいほどゆっくり変化する
-const DECAY_FRAMES   = 125;   // 壊れていくのにかける時間
-const RESTORE_FRAMES = 145;   // 修復にかける時間
+const DECAY_FRAMES   = 1250;   // 壊れていくのにかける時間
+const RESTORE_FRAMES = 1450;   // 修復にかける時間
 
 // ●欠損表現（どれくらい暗く／どれくらいザラザラさせるか）
 const DECAY_DARKEN_MAX = 25;   // 暗くする量（0〜50くらいが目安）
