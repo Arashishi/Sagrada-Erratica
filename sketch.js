@@ -15,7 +15,7 @@
 
 // ●読み込む画像の枚数
 //   image01.jpg 〜 imageXX.jpg を置いた枚数に合わせる
-const IMG_COUNT = 20;
+const IMG_COUNT = 13;
 
 // ●フレームレート
 //   数字を上げると動きがなめらかになるが重くなる
